@@ -3,6 +3,8 @@ use calamine::{DeError, RangeDeserializerBuilder, Reader, Xlsx, open_workbook};
 use iced::{
     Alignment, Background, Element, Length, Shadow, Task, Theme,
     border::Radius,
+    event::listen,
+    keyboard::{Key, key::Named},
     overlay::menu,
     theme::Palette,
     widget::{
@@ -25,6 +27,7 @@ const XLSX_FILTERS: [&str; 4] = ["xls", "xlsx", "xlsb", "ods"];
 
 fn main() {
     iced::application(App::new, App::update, App::view)
+        .subscription(App::keyboard_keys)
         .run()
         .unwrap();
 }
@@ -33,6 +36,7 @@ struct App {
     card_title: String,
     excel_path: PathBuf,
     exel_path_exists: bool,
+    excel_path_auto_complete: Vec<PathBuf>,
     exel_path_is_excel: bool,
     all_sheets_names: Arc<[String]>,
     sheet_name: Option<String>,
@@ -51,6 +55,7 @@ enum Message {
     PickExelFile,
     ToggleTitle((usize, bool)),
     Render,
+    TabComplete,
 }
 
 impl App {
@@ -60,6 +65,7 @@ impl App {
             excel_path: Default::default(),
             exel_path_exists: false,
             exel_path_is_excel: false,
+            excel_path_auto_complete: Vec::new(),
             all_sheets_names: Arc::new([]),
             sheet_name: Default::default(),
             all_rows_indexes: Arc::new([]),
@@ -68,6 +74,22 @@ impl App {
             rendered_at: None,
         }
     }
+    fn keyboard_keys(&self) -> iced::Subscription<Message> {
+        listen().filter_map(move |event| match event {
+            iced::Event::Keyboard(event) => {
+                if let iced::keyboard::Event::KeyPressed {
+                    key: Key::Named(Named::Tab),
+                    ..
+                } = event
+                {
+                    Some(Message::TabComplete)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })
+    }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
@@ -75,24 +97,12 @@ impl App {
                 self.card_title = title;
             }
             Message::ExcelPathChanged(path_buf) => {
-                self.exel_path_exists = path_buf.exists();
-                self.exel_path_is_excel = path_buf
-                    .extension()
-                    .is_some_and(|x| XLSX_FILTERS.contains(&x.to_str().unwrap()));
-                self.excel_path = path_buf;
-                if self.exel_path_exists && self.exel_path_is_excel {
-                    match open_workbook::<Xlsx<_>, _>(&self.excel_path) {
-                        Ok(wb) => {
-                            self.all_sheets_names = wb.sheet_names().into();
-                        }
-                        Err(err) => {
-                            eprintln!("Error : could not open workbook due to -> {err}");
-                        }
-                    };
-                } else {
-                    self.all_sheets_names = Arc::new([]);
-                    self.sheet_name = None;
-                }
+                self.excel_path_changed(path_buf);
+            }
+            Message::TabComplete => {
+                if let Some(path_buf) = self.excel_path_auto_complete.first() {
+                    self.excel_path_changed(path_buf.clone());
+                };
             }
             Message::SheetNameSelected(sheet) => {
                 match rows_range(&self.excel_path, &sheet) {
@@ -152,6 +162,28 @@ impl App {
             }
         }
         Task::none()
+    }
+
+    fn excel_path_changed(&mut self, path_buf: PathBuf) {
+        self.exel_path_exists = path_buf.exists();
+        self.exel_path_is_excel = path_buf
+            .extension()
+            .is_some_and(|x| XLSX_FILTERS.contains(&x.to_str().unwrap()));
+        self.excel_path_auto_complete = path_autocomplete(&path_buf).unwrap_or_default();
+        self.excel_path = path_buf;
+        if self.exel_path_exists && self.exel_path_is_excel {
+            match open_workbook::<Xlsx<_>, _>(&self.excel_path) {
+                Ok(wb) => {
+                    self.all_sheets_names = wb.sheet_names().into();
+                }
+                Err(err) => {
+                    eprintln!("Error : could not open workbook due to -> {err}");
+                }
+            };
+        } else {
+            self.all_sheets_names = Arc::new([]);
+            self.sheet_name = None;
+        }
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -296,18 +328,17 @@ impl App {
             });
         let browse = Button::new("اختيار ملف").on_press(Message::PickExelFile);
 
-        let ac = path_autocomplete(&self.excel_path).ok().map(|paths| {
-            paths
-                .into_iter()
-                .fold(Row::new(), |acc, path| {
-                    acc.push(
-                        Button::new(Text::new(path.display().to_string()))
-                            .on_press(Message::ExcelPathChanged(path)),
-                    )
-                })
-                .spacing(5.)
-                .wrap()
-        });
+        let ac = self
+            .excel_path_auto_complete
+            .iter()
+            .fold(Row::new(), |acc, path| {
+                acc.push(
+                    Button::new(Text::new(path.display().to_string()))
+                        .on_press(Message::ExcelPathChanged(path.clone())),
+                )
+            })
+            .spacing(5.)
+            .wrap();
         let input = row![browse, input]
             .spacing(10.)
             .spacing(3.)
