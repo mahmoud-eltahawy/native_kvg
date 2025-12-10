@@ -1,14 +1,17 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{env::home_dir, fs::File, io::Write, path::PathBuf, sync::Arc};
 
+use crate::web_render::web_cards;
 use calamine::{DeError, RangeDeserializerBuilder, Reader, Xlsx, open_workbook};
 use iced::{
-    Element, Task, Theme,
+    Alignment, Element, Task, Theme,
     theme::Palette,
     widget::{
         Button, Container, PickList, Row, Text, checkbox, column, container, row,
         text_input::{self, Style},
     },
 };
+
+mod web_render;
 
 fn main() {
     iced::application(App::new, App::update, App::view)
@@ -26,6 +29,7 @@ struct App {
     all_rows_indexes: Arc<[usize]>,
     title_row_index: Option<usize>,
     all_titles_names: Vec<(bool, String)>,
+    rendered_at: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -51,6 +55,7 @@ impl App {
             all_rows_indexes: Arc::new([]),
             title_row_index: None,
             all_titles_names: Vec::new(),
+            rendered_at: None,
         }
     }
 
@@ -105,7 +110,29 @@ impl App {
             Message::ToggleTitle((index, exists)) => {
                 self.all_titles_names[index].0 = exists;
             }
-            Message::Render => todo!(),
+            Message::Render => {
+                let (Some(title_row_index), Some(sheet_name)) =
+                    (self.title_row_index, &self.sheet_name)
+                else {
+                    return Task::none();
+                };
+                let html = web_cards(
+                    self.card_title.clone(),
+                    title_row_index,
+                    &self.excel_path,
+                    sheet_name,
+                    self.all_titles_names
+                        .iter()
+                        .enumerate()
+                        .filter(|x| x.1.0)
+                        .map(|x| x.0)
+                        .collect(),
+                );
+                let path = home_dir().unwrap().join("kvg_index.html");
+                let mut file = File::create(&path).unwrap();
+                file.write_all(&html.into_bytes()).unwrap();
+                self.rendered_at = Some(path);
+            }
         }
         Task::none()
     }
@@ -142,9 +169,10 @@ impl App {
                     success,
                     danger,
                     warning,
+                    primary,
                     ..
                 } = th.palette();
-                let c = if self.exel_path_exists && self.exel_path_is_excel {
+                let color = if self.exel_path_exists && self.exel_path_is_excel {
                     success
                 } else if self.exel_path_exists {
                     warning
@@ -152,16 +180,16 @@ impl App {
                     danger
                 };
                 Style {
-                    value: c,
+                    value: color,
                     background: iced::Background::Color(iced::Color::WHITE),
                     border: iced::Border {
-                        color: c,
+                        color,
                         width: 3.,
                         radius: iced::border::Radius::new(5.),
                     },
-                    icon: c,
-                    placeholder: c,
-                    selection: c,
+                    icon: color,
+                    placeholder: color,
+                    selection: primary,
                 }
             });
         let browse = Button::new("Browse").on_press(Message::PickExelFile);
@@ -215,7 +243,11 @@ impl App {
             } else {
                 None
             });
-        b.into()
+        let path = self
+            .rendered_at
+            .as_ref()
+            .map(|x| Text::new(format!("rendered at : {}", x.display())));
+        column![b, path].align_x(Alignment::Center).into()
     }
 }
 
