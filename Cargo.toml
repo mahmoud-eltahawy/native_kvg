@@ -1,0 +1,10 @@
+[package]
+name = "native_kvg"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.7"
+iced = "0.14.0"
+iced_aw = "0.13.0"
+tokio = "1.48.0"
