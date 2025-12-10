@@ -1,10 +1,11 @@
-use std::{num::NonZeroUsize, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
+use calamine::{Reader, Xlsx, open_workbook};
 use iced::{
     Element, Task, Theme,
     theme::Palette,
     widget::{
-        Button, Container, Text, column, container, row,
+        Button, Container, PickList, Text, column, container, row,
         text_input::{self, Style},
     },
 };
@@ -20,17 +21,17 @@ struct App {
     excel_path: PathBuf,
     exel_path_exists: bool,
     exel_path_is_excel: bool,
-    sheet_name: String,
-    title_row_index: NonZeroUsize,
+    all_sheets_names: Arc<[String]>,
+    sheet_name: Option<String>,
+    all_rows_indexes: Arc<[usize]>,
+    title_row_index: Option<usize>,
 }
 
 #[derive(Clone)]
 enum Message {
     CardTitleChanged(String),
     ExcelPathChanged(PathBuf),
-    SheetsNamesLoaded(Arc<[String]>),
-    SheetNameSelected(usize),
-    TitlRowPossibleIndexsLoaded(Arc<[usize]>),
+    SheetNameSelected(String),
     TitlRowIndexSelected(usize),
     PickExelFile,
 }
@@ -42,8 +43,10 @@ impl App {
             excel_path: Default::default(),
             exel_path_exists: false,
             exel_path_is_excel: false,
+            all_sheets_names: Arc::new([]),
             sheet_name: Default::default(),
-            title_row_index: NonZeroUsize::new(1).unwrap(),
+            all_rows_indexes: Arc::new([]),
+            title_row_index: None,
         }
     }
 
@@ -58,11 +61,31 @@ impl App {
                     .extension()
                     .is_some_and(|x| ["xls", "xlsx", "xlsb", "ods"].contains(&x.to_str().unwrap()));
                 self.excel_path = path_buf;
+                if self.exel_path_exists && self.exel_path_is_excel {
+                    match open_workbook::<Xlsx<_>, _>(&self.excel_path) {
+                        Ok(wb) => {
+                            self.all_sheets_names = wb.sheet_names().into();
+                        }
+                        Err(err) => {
+                            eprintln!("Error : could not open workbook due to -> {err}");
+                        }
+                    };
+                }
             }
-            Message::SheetsNamesLoaded(items) => todo!(),
-            Message::SheetNameSelected(_) => todo!(),
-            Message::TitlRowPossibleIndexsLoaded(items) => todo!(),
-            Message::TitlRowIndexSelected(_) => todo!(),
+            Message::SheetNameSelected(sheet) => {
+                match rows_range(&self.excel_path, &sheet) {
+                    Ok((top, bottom)) => {
+                        self.all_rows_indexes = (top..bottom).collect();
+                        self.sheet_name = Some(sheet);
+                    }
+                    Err(err) => {
+                        eprintln!("Error : could not get rows range due to -> {err}");
+                    }
+                };
+            }
+            Message::TitlRowIndexSelected(index) => {
+                self.title_row_index = Some(index);
+            }
             Message::PickExelFile => todo!(),
         }
         Task::none()
@@ -87,7 +110,7 @@ impl App {
         Container::new(row).style(container::rounded_box).into()
     }
     fn excel_path_view(&self) -> Element<'_, Message> {
-        let txt = "عنوان الكارت";
+        let txt = "موقع ملف الاكسل";
         let text = Text::new(txt);
         let input = text_input::TextInput::new(txt, &self.excel_path.display().to_string())
             .on_input(|x| {
@@ -127,12 +150,39 @@ impl App {
         Container::new(row).style(container::rounded_box).into()
     }
     fn sheet_name_view(&self) -> Element<'_, Message> {
-        self.card_title_view()
+        let txt = "اسم الشييت";
+        let text = Text::new(txt);
+        let input = PickList::new(
+            self.all_sheets_names.clone(),
+            self.sheet_name.clone(),
+            Message::SheetNameSelected,
+        );
+        let row = row![text, input];
+        Container::new(row).style(container::rounded_box).into()
     }
     fn title_row_index_view(&self) -> Element<'_, Message> {
-        self.card_title_view()
+        let txt = "مسلسل صف العناوين";
+        let text = Text::new(txt);
+        let input = PickList::new(
+            self.all_rows_indexes.clone(),
+            self.title_row_index,
+            Message::TitlRowIndexSelected,
+        );
+        let row = row![text, input];
+        Container::new(row).style(container::rounded_box).into()
     }
     fn submit_button_view(&self) -> Element<'_, Message> {
         self.card_title_view()
+    }
+}
+
+fn rows_range(path: &PathBuf, sheetname: &str) -> Result<(usize, usize), calamine::Error> {
+    let mut workbook: Xlsx<_> = open_workbook(path)?;
+    let range = workbook.worksheet_range(sheetname)?;
+    let top = range.start().map(|x| x.0);
+    let bottom = range.end().map(|x| x.0);
+    match (top, bottom) {
+        (Some(t), Some(b)) => Ok((t as usize, b as usize)),
+        _ => Ok((0, 0)),
     }
 }
