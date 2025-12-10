@@ -11,9 +11,17 @@ use iced::{
     },
 };
 use rfd::FileDialog;
-use std::{env::home_dir, fs::File, io::Write, path::PathBuf, sync::Arc};
+use std::{
+    env::home_dir,
+    fs::{self, File},
+    io::{self, Write},
+    path::PathBuf,
+    sync::Arc,
+};
 
 mod web_render;
+
+const XLSX_FILTERS: [&str; 4] = ["xls", "xlsx", "xlsb", "ods"];
 
 fn main() {
     iced::application(App::new, App::update, App::view)
@@ -287,15 +295,26 @@ impl App {
                 }
             });
         let browse = Button::new("اختيار ملف").on_press(Message::PickExelFile);
+
+        let ac = path_autocomplete(&self.excel_path).ok().map(|paths| {
+            paths
+                .into_iter()
+                .fold(Row::new(), |acc, path| {
+                    acc.push(
+                        Button::new(Text::new(path.display().to_string()))
+                            .on_press(Message::ExcelPathChanged(path)),
+                    )
+                })
+                .spacing(5.)
+                .wrap()
+        });
         let input = row![browse, input]
             .spacing(10.)
             .spacing(3.)
             .padding(3.)
             .align_y(Alignment::Center);
-        row![input, text]
-            .spacing(10.)
-            .align_y(Alignment::Center)
-            .into()
+        let row = row![input, text].spacing(10.).align_y(Alignment::Center);
+        column![row, ac].into()
     }
     fn sheet_name_view(&self) -> Element<'_, Message> {
         let txt = "اسم الشييت";
@@ -427,10 +446,37 @@ fn get_titles(
     Ok(headers)
 }
 
-const XLSX_FILTERS: [&str; 4] = ["xls", "xlsx", "xlsb", "ods"];
-
 fn pick_file() -> Option<PathBuf> {
-    FileDialog::new()
-        .add_filter("excel", &XLSX_FILTERS)
-        .pick_file()
+    FileDialog::new().pick_file()
+}
+
+fn path_autocomplete(path: &PathBuf) -> Result<Vec<PathBuf>, io::Error> {
+    let mut paths = if path.exists() {
+        let mut enteries = fs::read_dir(path)?;
+        let mut paths = Vec::new();
+        while let Some(entry) = enteries.next().transpose()? {
+            paths.push(entry.path());
+        }
+        paths
+    } else if path.parent().is_some_and(|x| x.exists()) {
+        let parent = path.parent().unwrap();
+        let name = path.file_name().unwrap().to_str().unwrap().to_lowercase();
+        let mut enteries = fs::read_dir(parent)?;
+        let mut paths = Vec::new();
+        while let Some(entry) = enteries.next().transpose()? {
+            let epath = entry.path();
+            if epath
+                .file_name()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.to_lowercase().starts_with(&name))
+            {
+                paths.push(epath);
+            }
+        }
+        paths
+    } else {
+        Vec::new()
+    };
+    paths.sort();
+    Ok(paths)
 }
