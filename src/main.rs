@@ -1,11 +1,11 @@
 use std::{path::PathBuf, sync::Arc};
 
-use calamine::{Reader, Xlsx, open_workbook};
+use calamine::{DeError, RangeDeserializerBuilder, Reader, Xlsx, open_workbook};
 use iced::{
     Element, Task, Theme,
     theme::Palette,
     widget::{
-        Button, Container, PickList, Text, column, container, row,
+        Button, Container, PickList, Row, Text, checkbox, column, container, row,
         text_input::{self, Style},
     },
 };
@@ -25,6 +25,7 @@ struct App {
     sheet_name: Option<String>,
     all_rows_indexes: Arc<[usize]>,
     title_row_index: Option<usize>,
+    all_titles_names: Vec<(bool, String)>,
 }
 
 #[derive(Clone)]
@@ -34,6 +35,7 @@ enum Message {
     SheetNameSelected(String),
     TitlRowIndexSelected(usize),
     PickExelFile,
+    ToggleTitle((usize, bool)),
 }
 
 impl App {
@@ -47,6 +49,7 @@ impl App {
             sheet_name: Default::default(),
             all_rows_indexes: Arc::new([]),
             title_row_index: None,
+            all_titles_names: Vec::new(),
         }
     }
 
@@ -84,9 +87,23 @@ impl App {
                 };
             }
             Message::TitlRowIndexSelected(index) => {
-                self.title_row_index = Some(index);
+                let Some(sheet_name) = &self.sheet_name else {
+                    return Task::none();
+                };
+                match get_titles(&self.excel_path, sheet_name, index) {
+                    Ok(titles) => {
+                        self.all_titles_names = titles.into_iter().map(|x| (false, x)).collect();
+                        self.title_row_index = Some(index);
+                    }
+                    Err(err) => {
+                        eprintln!("Error : could not fetch titles row due to -> {err}");
+                    }
+                };
             }
             Message::PickExelFile => todo!(),
+            Message::ToggleTitle((index, exists)) => {
+                self.all_titles_names[index].0 = exists;
+            }
         }
         Task::none()
     }
@@ -97,7 +114,8 @@ impl App {
         let sn = self.sheet_name_view();
         let tri = self.title_row_index_view();
         let sb = self.submit_button_view();
-        let col = column![ct, et, sn, tri, sb].spacing(5.).padding(5.);
+        let trp = self.titles_row_pick_view();
+        let col = column![ct, et, sn, tri, trp, sb].spacing(5.).padding(5.);
         Container::new(col).style(container::rounded_box).into()
     }
 
@@ -171,6 +189,22 @@ impl App {
         let row = row![text, input];
         Container::new(row).style(container::rounded_box).into()
     }
+    fn titles_row_pick_view(&self) -> Element<'_, Message> {
+        let txt = "اختار الاعمدة";
+        let text = Text::new(txt);
+        let row = self.all_titles_names.iter().enumerate().fold(
+            Row::new(),
+            |acc, (index, (exists, title))| {
+                acc.push(
+                    checkbox(*exists)
+                        .label(title)
+                        .on_toggle(move |ch| Message::ToggleTitle((index, ch))),
+                )
+            },
+        );
+        let col = column![text, row.wrap()];
+        Container::new(col).style(container::rounded_box).into()
+    }
     fn submit_button_view(&self) -> Element<'_, Message> {
         self.card_title_view()
     }
@@ -185,4 +219,25 @@ fn rows_range(path: &PathBuf, sheetname: &str) -> Result<(usize, usize), calamin
         (Some(t), Some(b)) => Ok((t as usize, b as usize)),
         _ => Ok((0, 0)),
     }
+}
+
+fn get_titles(
+    path: &PathBuf,
+    sheetname: &str,
+    headers_index: usize,
+) -> Result<Vec<String>, calamine::Error> {
+    let mut workbook: Xlsx<_> = open_workbook(path)?;
+    let range = workbook.worksheet_range(sheetname)?;
+
+    let mut iter = RangeDeserializerBuilder::new()
+        .has_headers(false)
+        .from_range(&range)?;
+
+    let headers: Vec<String> = iter
+        .nth(headers_index)
+        .unwrap_or(Err(DeError::HeaderNotFound(format!(
+            "Error number {headers_index} should contain headers"
+        ))))?;
+
+    Ok(headers)
 }
