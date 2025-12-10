@@ -46,18 +46,17 @@ pub fn Cards(title: String, cards: Vec<Vec<Kv>>) -> impl IntoView {
                 .map(|Kv { key, value }| {
                     view! {
                          <div class="flex">
-                            <dt class="px-3 border-l-2 border-dotted">{key}</dt>
-                            <dd class="grow">{value}</dd>
+                            <dt class="text-sm px-2 border-l-2 border-dotted font-bold">{key}</dt>
+                            <dd class="grow text-sm">{value}</dd>
                         </div>
                     }
                 })
                 .collect_view();
             view! {
                 <div
-                    style="break-inside:avoid;"
-                    class="border-sky-500 border-5 rounded-xl p-2 m-2 text-xl text-center"
+                    class="break-inside-avoid border-sky-500 border-5 rounded-xl p-2 m-2 text-xl text-center"
                 >
-                    <h2 class="font-bold">{title.clone()}</h2>
+                    <h2 class="font-bold font-xl underline">{title.clone()}</h2>
                     <dl class="divide-y divide-white/10">
                         {kvs}
                     </dl>
@@ -68,7 +67,7 @@ pub fn Cards(title: String, cards: Vec<Vec<Kv>>) -> impl IntoView {
         .collect_view();
 
     view! {
-        <div class="grid grid-cols-3 gap-5">
+        <div class="grid grid-cols-3 gap-1">
             {cards}
         </div>
     }
