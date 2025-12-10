@@ -53,7 +53,10 @@ pub fn Cards(title: String, cards: Vec<Vec<Kv>>) -> impl IntoView {
                 })
                 .collect_view();
             view! {
-                <div class="border-sky-500 border-5 rounded-xl p-2 m-2 text-xl text-center">
+                <div
+                    style="break-inside:avoid;"
+                    class="border-sky-500 border-5 rounded-xl p-2 m-2 text-xl text-center"
+                >
                     <h2 class="font-bold">{title.clone()}</h2>
                     <dl class="divide-y divide-white/10">
                         {kvs}

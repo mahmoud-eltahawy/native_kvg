@@ -1,15 +1,17 @@
-use std::{env::home_dir, fs::File, io::Write, path::PathBuf, sync::Arc};
-
 use crate::web_render::web_cards;
 use calamine::{DeError, RangeDeserializerBuilder, Reader, Xlsx, open_workbook};
 use iced::{
-    Alignment, Element, Task, Theme,
+    Alignment, Background, Element, Length, Shadow, Task, Theme,
+    border::Radius,
+    overlay::menu,
     theme::Palette,
     widget::{
-        Button, Container, PickList, Row, Text, checkbox, column, container, row,
-        text_input::{self, Style},
+        Button, Container, PickList, Row, Scrollable, Text, checkbox, column, container, row,
+        text_input::{Style, TextInput},
     },
 };
+use rfd::FileDialog;
+use std::{env::home_dir, fs::File, io::Write, path::PathBuf, sync::Arc};
 
 mod web_render;
 
@@ -68,7 +70,7 @@ impl App {
                 self.exel_path_exists = path_buf.exists();
                 self.exel_path_is_excel = path_buf
                     .extension()
-                    .is_some_and(|x| ["xls", "xlsx", "xlsb", "ods"].contains(&x.to_str().unwrap()));
+                    .is_some_and(|x| XLSX_FILTERS.contains(&x.to_str().unwrap()));
                 self.excel_path = path_buf;
                 if self.exel_path_exists && self.exel_path_is_excel {
                     match open_workbook::<Xlsx<_>, _>(&self.excel_path) {
@@ -79,6 +81,9 @@ impl App {
                             eprintln!("Error : could not open workbook due to -> {err}");
                         }
                     };
+                } else {
+                    self.all_sheets_names = Arc::new([]);
+                    self.sheet_name = None;
                 }
             }
             Message::SheetNameSelected(sheet) => {
@@ -106,7 +111,11 @@ impl App {
                     }
                 };
             }
-            Message::PickExelFile => todo!(),
+            Message::PickExelFile => {
+                if let Some(path) = pick_file() {
+                    self.excel_path = path;
+                }
+            }
             Message::ToggleTitle((index, exists)) => {
                 self.all_titles_names[index].0 = exists;
             }
@@ -144,22 +153,107 @@ impl App {
         let tri = self.title_row_index_view();
         let sb = self.submit_button_view();
         let trp = self.titles_row_pick_view();
-        let col = column![ct, et, sn, tri, trp, sb].spacing(5.).padding(5.);
-        Container::new(col).style(container::rounded_box).into()
+        let col = column![ct, et, sn, tri, trp, sb]
+            .spacing(25.)
+            .padding(5.)
+            .align_x(Alignment::Center);
+        let col = Scrollable::new(col);
+        Container::new(col)
+            .height(Length::Fill)
+            .padding(80.)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .style(|theme: &Theme| {
+                let Palette {
+                    background,
+                    text,
+                    primary,
+                    ..
+                } = theme.palette();
+                container::Style {
+                    text_color: Some(text),
+                    background: Some(Background::Color(background)),
+                    border: iced::Border {
+                        color: primary,
+                        width: 7.,
+                        radius: Radius::new(50.),
+                    },
+                    shadow: Shadow::default(),
+                    snap: true,
+                }
+            })
+            .into()
     }
 
     fn card_title_view(&self) -> Element<'_, Message> {
         let txt = "عنوان الكارت";
-        let text = Text::new(txt);
-        let input =
-            text_input::TextInput::new(txt, &self.card_title).on_input(Message::CardTitleChanged);
-        let row = row![text, input];
-        Container::new(row).style(container::rounded_box).into()
+        let text = (!self.card_title.is_empty()).then_some(Text::new(txt).size(20.));
+        let input = TextInput::new(txt, &self.card_title)
+            .align_x(Alignment::Center)
+            .padding(20.)
+            .size(25.)
+            .style(|theme: &Theme, _| {
+                let Palette {
+                    background,
+                    text,
+                    primary,
+                    warning,
+                    danger,
+                    ..
+                } = theme.palette();
+                Style {
+                    background: Background::Color(background),
+                    border: iced::Border {
+                        color: if self.card_title.is_empty() {
+                            danger
+                        } else {
+                            primary
+                        },
+                        width: 3.,
+                        radius: Radius::new(20.),
+                    },
+                    icon: text,
+                    placeholder: warning,
+                    value: text,
+                    selection: danger,
+                }
+            })
+            .on_input(Message::CardTitleChanged);
+        row![input, text]
+            .align_y(Alignment::Center)
+            .padding(20.)
+            .spacing(20.)
+            .into()
     }
     fn excel_path_view(&self) -> Element<'_, Message> {
         let txt = "موقع ملف الاكسل";
-        let text = Text::new(txt);
-        let input = text_input::TextInput::new(txt, &self.excel_path.display().to_string())
+        let text = (self.excel_path != PathBuf::new()).then_some(Text::new(txt).size(20.));
+        let input = TextInput::new(txt, &self.excel_path.display().to_string())
+            .align_x(Alignment::Center)
+            .padding(10.)
+            .size(25.)
+            .style(|theme: &Theme, _| {
+                let Palette {
+                    background,
+                    text,
+                    primary,
+                    warning,
+                    danger,
+                    ..
+                } = theme.palette();
+                Style {
+                    background: Background::Color(background),
+                    border: iced::Border {
+                        color: primary,
+                        width: 3.,
+                        radius: Radius::new(20.),
+                    },
+                    icon: text,
+                    placeholder: warning,
+                    value: text,
+                    selection: danger,
+                }
+            })
             .on_input(|x| {
                 let Ok(x) = x.parse();
                 Message::ExcelPathChanged(x)
@@ -185,69 +279,119 @@ impl App {
                     border: iced::Border {
                         color,
                         width: 3.,
-                        radius: iced::border::Radius::new(5.),
+                        radius: Radius::new(5.),
                     },
                     icon: color,
                     placeholder: color,
                     selection: primary,
                 }
             });
-        let browse = Button::new("Browse").on_press(Message::PickExelFile);
-        let input = row![input, browse].spacing(3.).padding(3.);
-        let row = row![text, input];
-        Container::new(row).style(container::rounded_box).into()
+        let browse = Button::new("اختيار ملف").on_press(Message::PickExelFile);
+        let input = row![browse, input]
+            .spacing(10.)
+            .spacing(3.)
+            .padding(3.)
+            .align_y(Alignment::Center);
+        row![input, text]
+            .spacing(10.)
+            .align_y(Alignment::Center)
+            .into()
     }
     fn sheet_name_view(&self) -> Element<'_, Message> {
         let txt = "اسم الشييت";
-        let text = Text::new(txt);
+        let text = self.sheet_name.as_ref().map(|_| Text::new(txt));
         let input = PickList::new(
             self.all_sheets_names.clone(),
             self.sheet_name.clone(),
             Message::SheetNameSelected,
-        );
-        let row = row![text, input];
-        Container::new(row).style(container::rounded_box).into()
+        )
+        .menu_style(|theme: &Theme| {
+            let Palette {
+                background,
+                text,
+                primary,
+                success,
+                ..
+            } = theme.palette();
+            //
+            menu::Style {
+                border: iced::Border {
+                    color: primary,
+                    width: 3.,
+                    radius: Radius::new(3.),
+                },
+                background: Background::Color(background),
+                text_color: text,
+                selected_text_color: success,
+                selected_background: Background::Color(background),
+                shadow: Shadow::default(),
+            }
+        })
+        .text_size(20.)
+        .padding(10.)
+        .placeholder(txt);
+        row![input, text]
+            .align_y(Alignment::Center)
+            .spacing(20.)
+            .into()
     }
     fn title_row_index_view(&self) -> Element<'_, Message> {
         let txt = "مسلسل صف العناوين";
-        let text = Text::new(txt);
+        let text = self
+            .title_row_index
+            .as_ref()
+            .map(|_| Text::new(txt).align_y(Alignment::Center));
         let input = PickList::new(
             self.all_rows_indexes.clone(),
             self.title_row_index,
             Message::TitlRowIndexSelected,
-        );
-        let row = row![text, input];
-        Container::new(row).style(container::rounded_box).into()
+        )
+        .text_size(20.)
+        .placeholder(txt);
+        row![input, text]
+            .spacing(15.)
+            .align_y(Alignment::Center)
+            .into()
     }
     fn titles_row_pick_view(&self) -> Element<'_, Message> {
-        let txt = "اختار الاعمدة";
-        let text = Text::new(txt);
-        let row = self.all_titles_names.iter().enumerate().fold(
-            Row::new(),
-            |acc, (index, (exists, title))| {
+        let txt = "اختر الاعمدة";
+        let text = (!self.all_titles_names.is_empty()).then_some(Text::new(txt));
+        let titles_row = self
+            .all_titles_names
+            .iter()
+            .enumerate()
+            .fold(Row::new(), |acc, (index, (exists, title))| {
                 acc.push(
                     checkbox(*exists)
+                        .size(20.)
+                        .text_size(20.)
                         .label(title)
+                        .spacing(20.)
                         .on_toggle(move |ch| Message::ToggleTitle((index, ch))),
                 )
-            },
-        );
-        let col = column![text, row.wrap()];
-        Container::new(col).style(container::rounded_box).into()
+            })
+            .spacing(20.)
+            .padding(5.)
+            .align_y(Alignment::Center);
+        column![text, titles_row.wrap()].spacing(20.).into()
     }
     fn submit_button_view(&self) -> Element<'_, Message> {
-        let clickable = self.all_titles_names.iter().filter(|x| x.0).count() > 0;
-        let b =
-            Button::new(if clickable { "تمام" } else { "افندم!" }).on_press_maybe(if clickable {
+        let clickable =
+            self.all_titles_names.iter().filter(|x| x.0).count() > 0 && !self.card_title.is_empty();
+        let submit = Button::new(if clickable { "تمام" } else { "افندم!" })
+            .on_press_maybe(if clickable {
                 Some(Message::Render)
             } else {
                 None
-            });
-        let path = self
+            })
+            .padding(20.);
+        let rendered_at = self
             .rendered_at
             .as_ref()
             .map(|x| Text::new(format!("rendered at : {}", x.display())));
-        column![b, path].align_x(Alignment::Center).into()
+        column![submit, rendered_at]
+            .align_x(Alignment::Center)
+            .into()
     }
 }
 
@@ -281,4 +425,12 @@ fn get_titles(
         ))))?;
 
     Ok(headers)
+}
+
+const XLSX_FILTERS: [&str; 4] = ["xls", "xlsx", "xlsb", "ods"];
+
+fn pick_file() -> Option<PathBuf> {
+    FileDialog::new()
+        .add_filter("excel", &XLSX_FILTERS)
+        .pick_file()
 }

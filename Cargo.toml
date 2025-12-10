@@ -7,3 +7,4 @@ edition = "2024"
 calamine = "0.32.0"
 iced = "0.14.0"
 leptos = { version = "0.8.14", features = ["ssr", "islands"] }
+rfd = "0.16.0"
