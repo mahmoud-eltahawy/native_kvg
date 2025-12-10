@@ -36,6 +36,7 @@ enum Message {
     TitlRowIndexSelected(usize),
     PickExelFile,
     ToggleTitle((usize, bool)),
+    Render,
 }
 
 impl App {
@@ -78,7 +79,7 @@ impl App {
             Message::SheetNameSelected(sheet) => {
                 match rows_range(&self.excel_path, &sheet) {
                     Ok((top, bottom)) => {
-                        self.all_rows_indexes = (top..bottom).collect();
+                        self.all_rows_indexes = ((top + 1)..=bottom).collect();
                         self.sheet_name = Some(sheet);
                     }
                     Err(err) => {
@@ -90,7 +91,7 @@ impl App {
                 let Some(sheet_name) = &self.sheet_name else {
                     return Task::none();
                 };
-                match get_titles(&self.excel_path, sheet_name, index) {
+                match get_titles(&self.excel_path, sheet_name, index - 1) {
                     Ok(titles) => {
                         self.all_titles_names = titles.into_iter().map(|x| (false, x)).collect();
                         self.title_row_index = Some(index);
@@ -104,6 +105,7 @@ impl App {
             Message::ToggleTitle((index, exists)) => {
                 self.all_titles_names[index].0 = exists;
             }
+            Message::Render => todo!(),
         }
         Task::none()
     }
@@ -206,7 +208,14 @@ impl App {
         Container::new(col).style(container::rounded_box).into()
     }
     fn submit_button_view(&self) -> Element<'_, Message> {
-        self.card_title_view()
+        let clickable = self.all_titles_names.iter().filter(|x| x.0).count() > 0;
+        let b =
+            Button::new(if clickable { "تمام" } else { "افندم!" }).on_press_maybe(if clickable {
+                Some(Message::Render)
+            } else {
+                None
+            });
+        b.into()
     }
 }
 
